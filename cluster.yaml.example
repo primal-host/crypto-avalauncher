@@ -1,0 +1,19 @@
+# Avalauncher cluster configuration
+# Copy to cluster.yaml and edit for your environment.
+
+network: fuji              # mainnet | fuji | local
+
+hosts:
+  - name: node-1
+    ssh: ""                # empty = local Docker
+  - name: node-2
+    ssh: "root@10.0.1.2:22"
+
+nodes:
+  - name: avago-1
+    host: node-1
+    image: avaplatform/avalanchego:latest
+    http_port: 9650
+    staking_port: 9651
+
+l1s: []
