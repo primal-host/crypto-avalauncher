@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // Config holds all runtime configuration loaded from environment variables.
 type Config struct {
@@ -20,18 +20,30 @@ type Config struct {
 	DBSSLMode  string
 	ListenAddr string
 	AdminKey   string
+
+	// Docker / AvalancheGo
+	DockerHost     string // DOCKER_HOST, default empty (unix socket)
+	AvagoImage     string // AVAGO_IMAGE, default "avaplatform/avalanchego:latest"
+	AvagoNetwork   string // AVAGO_NETWORK, default "mainnet"
+	AvaxDockerNet  string // AVAX_DOCKER_NETWORK, default "avax"
+	HealthInterval string // HEALTH_INTERVAL, default "30s"
 }
 
 // Load reads configuration from environment variables.
 // Supports _FILE suffix for Docker secrets (e.g. DB_PASSWORD_FILE).
 func Load() (*Config, error) {
 	c := &Config{
-		DBHost:    envOrDefault("DB_HOST", "localhost"),
-		DBPort:    envOrDefault("DB_PORT", "5432"),
-		DBName:    envOrDefault("DB_NAME", "avalauncher"),
-		DBUser:    envOrDefault("DB_USER", "dba_avalauncher"),
-		DBSSLMode: envOrDefault("DB_SSLMODE", "disable"),
-		ListenAddr: envOrDefault("LISTEN_ADDR", ":4321"),
+		DBHost:         envOrDefault("DB_HOST", "localhost"),
+		DBPort:         envOrDefault("DB_PORT", "5432"),
+		DBName:         envOrDefault("DB_NAME", "avalauncher"),
+		DBUser:         envOrDefault("DB_USER", "dba_avalauncher"),
+		DBSSLMode:      envOrDefault("DB_SSLMODE", "disable"),
+		ListenAddr:     envOrDefault("LISTEN_ADDR", ":4321"),
+		DockerHost:     os.Getenv("DOCKER_HOST"),
+		AvagoImage:     envOrDefault("AVAGO_IMAGE", "avaplatform/avalanchego:latest"),
+		AvagoNetwork:   envOrDefault("AVAGO_NETWORK", "mainnet"),
+		AvaxDockerNet:  envOrDefault("AVAX_DOCKER_NETWORK", "avax"),
+		HealthInterval: envOrDefault("HEALTH_INTERVAL", "30s"),
 	}
 
 	pw, err := envOrFile("DB_PASSWORD")
