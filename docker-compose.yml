@@ -12,10 +12,13 @@ services:
       - infra
     labels:
       - "traefik.enable=true"
+      # Basic auth
+      - "traefik.http.middlewares.avalauncher-auth.basicauth.users=primal:$$2y$$05$$vhuYLDj2vtKFLF8lv2cjz.XqfKT1Sjs/qC2vk08cad7HAkMm0Q7R2"
       # Production (HTTPS)
       - "traefik.http.routers.avalauncher.rule=Host(`avalauncher.primal.host`)"
       - "traefik.http.routers.avalauncher.entrypoints=https"
       - "traefik.http.routers.avalauncher.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.avalauncher.middlewares=avalauncher-auth"
       # Production HTTP->HTTPS redirect
       - "traefik.http.routers.avalauncher-redirect.rule=Host(`avalauncher.primal.host`)"
       - "traefik.http.routers.avalauncher-redirect.entrypoints=http"
@@ -23,6 +26,7 @@ services:
       # Local (HTTP)
       - "traefik.http.routers.avalauncher-local.rule=Host(`avalauncher.localhost`)"
       - "traefik.http.routers.avalauncher-local.entrypoints=http"
+      - "traefik.http.routers.avalauncher-local.middlewares=avalauncher-auth"
       # Service
       - "traefik.http.services.avalauncher.loadbalancer.server.port=4321"
     dns:
