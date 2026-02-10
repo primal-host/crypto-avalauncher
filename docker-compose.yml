@@ -12,9 +12,18 @@ services:
       - infra
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.avalauncher.rule=Host(`avalauncher.primal.host`) || Host(`avalauncher.localhost`)"
-      - "traefik.http.routers.avalauncher.entrypoints=websecure"
+      # Production (HTTPS)
+      - "traefik.http.routers.avalauncher.rule=Host(`avalauncher.primal.host`)"
+      - "traefik.http.routers.avalauncher.entrypoints=https"
       - "traefik.http.routers.avalauncher.tls.certresolver=letsencrypt"
+      # Production HTTP->HTTPS redirect
+      - "traefik.http.routers.avalauncher-redirect.rule=Host(`avalauncher.primal.host`)"
+      - "traefik.http.routers.avalauncher-redirect.entrypoints=http"
+      - "traefik.http.routers.avalauncher-redirect.middlewares=https-redirect"
+      # Local (HTTP)
+      - "traefik.http.routers.avalauncher-local.rule=Host(`avalauncher.localhost`)"
+      - "traefik.http.routers.avalauncher-local.entrypoints=http"
+      # Service
       - "traefik.http.services.avalauncher.loadbalancer.server.port=4321"
     dns:
       - 192.168.147.53
