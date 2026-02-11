@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -17,13 +18,16 @@ import (
 
 // Manager handles node lifecycle, health polling, and event logging.
 type Manager struct {
-	dc             *docker.Client
-	pool           *pgxpool.Pool
-	avagoImage     string
-	avagoNetwork   string // avalanche network id (mainnet, fuji, local)
-	avaxDockerNet  string // docker network name
+	localClient *docker.Client
+	pool        *pgxpool.Pool
+	avagoImage  string
+	avagoNetwork  string // avalanche network id (mainnet, fuji, local)
+	avaxDockerNet string // docker network name
 	healthInterval time.Duration
-	localHostLabel string // resolved Docker host name
+	localHostID int64
+
+	clients   map[int64]*docker.Client // hostID -> client
+	clientsMu sync.RWMutex
 
 	stopPoller chan struct{}
 	pollerWg   sync.WaitGroup
@@ -33,12 +37,13 @@ type Manager struct {
 // row, and runs startup reconciliation.
 func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage, avagoNetwork, avaxDockerNet string, healthInterval time.Duration) (*Manager, error) {
 	m := &Manager{
-		dc:             dc,
+		localClient:    dc,
 		pool:           pool,
 		avagoImage:     avagoImage,
 		avagoNetwork:   avagoNetwork,
 		avaxDockerNet:  avaxDockerNet,
 		healthInterval: healthInterval,
+		clients:        make(map[int64]*docker.Client),
 		stopPoller:     make(chan struct{}),
 	}
 
@@ -46,27 +51,122 @@ func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage,
 		return nil, fmt.Errorf("ensure network: %w", err)
 	}
 
-	// Resolve local host label from Docker daemon.
-	if name, err := dc.HostName(ctx); err == nil && name != "" {
-		m.localHostLabel = name
+	// Gather host info and resolve hostname.
+	var hostname string
+	info, err := dc.HostInfo(ctx)
+	if err == nil && info.Hostname != "" && info.Hostname != "orbstack" {
+		hostname = info.Hostname
 	} else {
-		m.localHostLabel = "local"
+		hostname, _ = os.Hostname()
+		if hostname == "" {
+			hostname = "local"
+		}
 	}
 
-	// Upsert the "local" host row.
-	_, err := pool.Exec(ctx, `
-		INSERT INTO hosts (name, ssh_addr, status)
-		VALUES ('local', '', 'online')
-		ON CONFLICT (name) DO UPDATE SET status = 'online', updated_at = now()`)
+	// Build labels JSONB from host info.
+	labels := map[string]any{"hostname": hostname}
+	if info != nil {
+		labels["os"] = info.OS
+		labels["arch"] = info.Architecture
+		labels["cpus"] = info.CPUs
+		labels["memory_mb"] = info.MemoryMB
+		labels["docker_version"] = info.DockerVersion
+	}
+	labelsJSON, _ := json.Marshal(labels)
+
+	// Upsert the "local" host row with labels.
+	err = pool.QueryRow(ctx, `
+		INSERT INTO hosts (name, ssh_addr, status, labels)
+		VALUES ('local', '', 'online', $1)
+		ON CONFLICT (name) DO UPDATE SET status = 'online', labels = $1, updated_at = now()
+		RETURNING id`, labelsJSON).Scan(&m.localHostID)
 	if err != nil {
 		return nil, fmt.Errorf("upsert local host: %w", err)
 	}
+
+	// Register local client.
+	m.registerClient(m.localHostID, dc)
+
+	// Connect to existing remote hosts.
+	m.connectRemoteHosts(ctx)
 
 	if err := m.reconcile(ctx); err != nil {
 		slog.Warn("reconciliation error", "error", err)
 	}
 
 	return m, nil
+}
+
+// clientFor returns the Docker client for a given host ID.
+func (m *Manager) clientFor(hostID int64) *docker.Client {
+	if hostID == m.localHostID {
+		return m.localClient
+	}
+	m.clientsMu.RLock()
+	defer m.clientsMu.RUnlock()
+	return m.clients[hostID]
+}
+
+// registerClient stores a Docker client for a host ID.
+func (m *Manager) registerClient(hostID int64, dc *docker.Client) {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+	m.clients[hostID] = dc
+}
+
+// unregisterClient removes and closes a Docker client for a host ID.
+func (m *Manager) unregisterClient(hostID int64) {
+	m.clientsMu.Lock()
+	if dc, ok := m.clients[hostID]; ok {
+		dc.Close()
+		delete(m.clients, hostID)
+	}
+	m.clientsMu.Unlock()
+}
+
+// CloseClients closes all remote Docker client connections.
+func (m *Manager) CloseClients() {
+	m.clientsMu.Lock()
+	defer m.clientsMu.Unlock()
+	for id, dc := range m.clients {
+		if id != m.localHostID {
+			dc.Close()
+		}
+	}
+}
+
+// connectRemoteHosts connects to all non-local online hosts from the DB.
+func (m *Manager) connectRemoteHosts(ctx context.Context) {
+	rows, err := m.pool.Query(ctx, `
+		SELECT id, name, ssh_addr FROM hosts
+		WHERE ssh_addr != '' AND status = 'online'`)
+	if err != nil {
+		slog.Warn("query remote hosts", "error", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id int64
+		var name, sshAddr string
+		if err := rows.Scan(&id, &name, &sshAddr); err != nil {
+			continue
+		}
+		dc, err := docker.NewSSH(sshAddr)
+		if err != nil {
+			slog.Warn("ssh connect failed", "host", name, "error", err)
+			m.pool.Exec(ctx, "UPDATE hosts SET status='unreachable', updated_at=now() WHERE id=$1", id)
+			continue
+		}
+		if err := dc.Ping(ctx); err != nil {
+			slog.Warn("ssh ping failed", "host", name, "error", err)
+			dc.Close()
+			m.pool.Exec(ctx, "UPDATE hosts SET status='unreachable', updated_at=now() WHERE id=$1", id)
+			continue
+		}
+		m.registerClient(id, dc)
+		slog.Info("connected to remote host", "host", name, "ssh", sshAddr)
+	}
 }
 
 // Node represents a node row from the database.
@@ -90,6 +190,7 @@ type CreateNodeRequest struct {
 	Image       string `json:"image"`
 	StakingPort int    `json:"staking_port"`
 	ExposeHTTP  bool   `json:"expose_http"`
+	HostID      int64  `json:"host_id"`
 }
 
 // CreateNode validates inputs, pulls the image, creates and starts a container,
@@ -115,20 +216,22 @@ func (m *Manager) CreateNode(ctx context.Context, req CreateNodeRequest) (*Node,
 		return nil, fmt.Errorf("node %q already exists", req.Name)
 	}
 
-	// Check staking port conflicts.
-	err = m.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM nodes WHERE staking_port=$1 AND status NOT IN ('stopped','failed'))", req.StakingPort).Scan(&exists)
+	// Resolve host ID — default to local.
+	hostID := req.HostID
+	if hostID == 0 {
+		hostID = m.localHostID
+	}
+	if dc := m.clientFor(hostID); dc == nil {
+		return nil, fmt.Errorf("host %d not connected", hostID)
+	}
+
+	// Check staking port conflicts scoped to host.
+	err = m.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM nodes WHERE host_id=$1 AND staking_port=$2 AND status NOT IN ('stopped','failed'))", hostID, req.StakingPort).Scan(&exists)
 	if err != nil {
 		return nil, fmt.Errorf("check port: %w", err)
 	}
 	if exists {
-		return nil, fmt.Errorf("staking port %d already in use", req.StakingPort)
-	}
-
-	// Get local host ID.
-	var hostID int64
-	err = m.pool.QueryRow(ctx, "SELECT id FROM hosts WHERE name='local'").Scan(&hostID)
-	if err != nil {
-		return nil, fmt.Errorf("get local host: %w", err)
+		return nil, fmt.Errorf("staking port %d already in use on this host", req.StakingPort)
 	}
 
 	// Insert node in creating state.
@@ -148,15 +251,21 @@ func (m *Manager) CreateNode(ctx context.Context, req CreateNodeRequest) (*Node,
 	m.logEvent(ctx, "node.creating", node.Name, "Creating node", nil)
 
 	// Pull + create + start in background.
-	go m.provisionNode(node.ID, req)
+	go m.provisionNode(node.ID, hostID, req)
 
 	return &node, nil
 }
 
 // provisionNode pulls the image, creates and starts the container.
-func (m *Manager) provisionNode(nodeID int64, req CreateNodeRequest) {
+func (m *Manager) provisionNode(nodeID int64, hostID int64, req CreateNodeRequest) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+
+	dc := m.clientFor(hostID)
+	if dc == nil {
+		slog.Error("no client for host", "host_id", hostID, "node", req.Name)
+		return
+	}
 
 	setStatus := func(status, msg string) {
 		_, err := m.pool.Exec(ctx, "UPDATE nodes SET status=$1, updated_at=now() WHERE id=$2", status, nodeID)
@@ -168,7 +277,7 @@ func (m *Manager) provisionNode(nodeID int64, req CreateNodeRequest) {
 
 	// Pull image.
 	slog.Info("pulling image", "image", req.Image, "node", req.Name)
-	reader, err := m.dc.PullImage(ctx, req.Image)
+	reader, err := dc.PullImage(ctx, req.Image)
 	if err != nil {
 		slog.Error("pull image failed", "error", err, "node", req.Name)
 		setStatus("failed", fmt.Sprintf("Image pull failed: %v", err))
@@ -192,7 +301,7 @@ func (m *Manager) provisionNode(nodeID int64, req CreateNodeRequest) {
 
 	// Create container.
 	containerName := params.ContainerName()
-	containerID, err := m.dc.ContainerCreate(ctx, containerName, cc, hc, nc)
+	containerID, err := dc.ContainerCreate(ctx, containerName, cc, hc, nc)
 	if err != nil {
 		slog.Error("create container failed", "error", err, "node", req.Name)
 		setStatus("failed", fmt.Sprintf("Container create failed: %v", err))
@@ -206,7 +315,7 @@ func (m *Manager) provisionNode(nodeID int64, req CreateNodeRequest) {
 	}
 
 	// Start container.
-	if err := m.dc.ContainerStart(ctx, containerID); err != nil {
+	if err := dc.ContainerStart(ctx, containerID); err != nil {
 		slog.Error("start container failed", "error", err, "node", req.Name)
 		setStatus("failed", fmt.Sprintf("Container start failed: %v", err))
 		return
@@ -267,7 +376,11 @@ func (m *Manager) StartNode(ctx context.Context, id int64) error {
 		return fmt.Errorf("node %q is already running", node.Name)
 	}
 
-	if err := m.dc.ContainerStart(ctx, node.ContainerID); err != nil {
+	dc := m.clientFor(node.HostID)
+	if dc == nil {
+		return fmt.Errorf("host %d not connected", node.HostID)
+	}
+	if err := dc.ContainerStart(ctx, node.ContainerID); err != nil {
 		return fmt.Errorf("start container: %w", err)
 	}
 
@@ -292,7 +405,11 @@ func (m *Manager) StopNode(ctx context.Context, id int64) error {
 		return fmt.Errorf("node %q is already stopped", node.Name)
 	}
 
-	if err := m.dc.ContainerStop(ctx, node.ContainerID, 30); err != nil {
+	dc := m.clientFor(node.HostID)
+	if dc == nil {
+		return fmt.Errorf("host %d not connected", node.HostID)
+	}
+	if err := dc.ContainerStop(ctx, node.ContainerID, 30); err != nil {
 		return fmt.Errorf("stop container: %w", err)
 	}
 
@@ -312,9 +429,13 @@ func (m *Manager) DeleteNode(ctx context.Context, id int64, removeVolumes bool) 
 	}
 
 	if node.ContainerID != "" {
+		dc := m.clientFor(node.HostID)
+		if dc == nil {
+			return fmt.Errorf("host %d not connected", node.HostID)
+		}
 		// Stop if running (ignore errors — may already be stopped).
-		_ = m.dc.ContainerStop(ctx, node.ContainerID, 10)
-		if err := m.dc.ContainerRemove(ctx, node.ContainerID, removeVolumes); err != nil {
+		_ = dc.ContainerStop(ctx, node.ContainerID, 10)
+		if err := dc.ContainerRemove(ctx, node.ContainerID, removeVolumes); err != nil {
 			// If container not found, that's fine.
 			if !strings.Contains(err.Error(), "No such container") {
 				return fmt.Errorf("remove container: %w", err)
@@ -344,7 +465,11 @@ func (m *Manager) NodeLogs(ctx context.Context, id int64, tail string) (io.ReadC
 	if tail == "" {
 		tail = "100"
 	}
-	return m.dc.ContainerLogs(ctx, node.ContainerID, tail)
+	dc := m.clientFor(node.HostID)
+	if dc == nil {
+		return nil, fmt.Errorf("host %d not connected", node.HostID)
+	}
+	return dc.ContainerLogs(ctx, node.ContainerID, tail)
 }
 
 // Event represents an audit event row.
@@ -437,11 +562,16 @@ func (m *Manager) pollHealth() {
 			newStatus = "running"
 		} else if !healthy && node.Status == "running" {
 			// Check if container is actually running.
-			info, err := m.dc.ContainerInspect(ctx, node.ContainerID)
-			if err != nil || !info.State.Running {
-				newStatus = "stopped"
-			} else {
+			dc := m.clientFor(node.HostID)
+			if dc == nil {
 				newStatus = "unhealthy"
+			} else {
+				info, err := dc.ContainerInspect(ctx, node.ContainerID)
+				if err != nil || !info.State.Running {
+					newStatus = "stopped"
+				} else {
+					newStatus = "unhealthy"
+				}
 			}
 		}
 
@@ -534,15 +664,27 @@ func (m *Manager) fetchAndStoreNodeID(ctx context.Context, node Node) {
 func (m *Manager) reconcile(ctx context.Context) error {
 	slog.Info("running startup reconciliation")
 
-	containers, err := m.dc.ListManagedContainers(ctx)
-	if err != nil {
-		return fmt.Errorf("list containers: %w", err)
+	// Build container state map per host.
+	m.clientsMu.RLock()
+	hostClients := make(map[int64]*docker.Client, len(m.clients))
+	for id, dc := range m.clients {
+		hostClients[id] = dc
 	}
+	m.clientsMu.RUnlock()
 
-	// Build lookup by container name.
-	containerState := make(map[string]string) // name -> state
-	for _, c := range containers {
-		containerState[c.Name] = c.State
+	// hostID -> (containerName -> state)
+	containerStates := make(map[int64]map[string]string)
+	for hostID, dc := range hostClients {
+		containers, err := dc.ListManagedContainers(ctx)
+		if err != nil {
+			slog.Warn("reconcile: list containers", "host_id", hostID, "error", err)
+			continue
+		}
+		stateMap := make(map[string]string)
+		for _, c := range containers {
+			stateMap[c.Name] = c.State
+		}
+		containerStates[hostID] = stateMap
 	}
 
 	nodes, err := m.ListNodes(ctx)
@@ -555,9 +697,15 @@ func (m *Manager) reconcile(ctx context.Context) error {
 			continue
 		}
 		containerName := "avax-" + node.Name
-		state, found := containerState[containerName]
+		stateMap, hostKnown := containerStates[node.HostID]
 
 		var newStatus string
+		if !hostKnown {
+			// Host not connected — skip reconciliation for this node.
+			continue
+		}
+
+		state, found := stateMap[containerName]
 		if !found {
 			// Container gone — mark as stopped.
 			newStatus = "stopped"
@@ -614,9 +762,9 @@ type NodeSummary struct {
 	L1s         []L1Summary `json:"l1s"`
 }
 
-// LocalHostLabel returns the resolved Docker host display name.
-func (m *Manager) LocalHostLabel() string {
-	return m.localHostLabel
+// LocalHostID returns the database ID of the local host.
+func (m *Manager) LocalHostID() int64 {
+	return m.localHostID
 }
 
 // ListL1sForNode returns L1s validated by the given node.
