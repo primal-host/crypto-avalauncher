@@ -45,7 +45,7 @@ func (p *AvagoParams) BuildContainerConfig() (*container.Config, *container.Host
 	env := []string{
 		"AVAGO_NETWORK_ID=" + p.NetworkID,
 		"AVAGO_HTTP_HOST=0.0.0.0",
-		"AVAGO_PUBLIC_IP_RESOLUTION_SERVICE=ifconfigme",
+		"AVAGO_PUBLIC_IP_RESOLUTION_SERVICE=opendns",
 	}
 
 	exposedPorts := nat.PortSet{
