@@ -585,14 +585,51 @@ type StatusSummary struct {
 	Nodes   []NodeSummary  `json:"nodes,omitempty"`
 }
 
+// L1Summary is a brief L1 representation for node cards.
+type L1Summary struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	SubnetID string `json:"subnet_id"`
+	VM       string `json:"vm"`
+	Status   string `json:"status"`
+}
+
 // NodeSummary is a brief node representation for the dashboard.
 type NodeSummary struct {
-	ID          int64  `json:"id"`
-	Name        string `json:"name"`
-	Image       string `json:"image"`
-	NodeID      string `json:"node_id,omitempty"`
-	StakingPort int    `json:"staking_port"`
-	Status      string `json:"status"`
+	ID          int64       `json:"id"`
+	Name        string      `json:"name"`
+	Image       string      `json:"image"`
+	NodeID      string      `json:"node_id,omitempty"`
+	StakingPort int         `json:"staking_port"`
+	Status      string      `json:"status"`
+	L1s         []L1Summary `json:"l1s"`
+}
+
+// ListL1sForNode returns L1s validated by the given node.
+func (m *Manager) ListL1sForNode(ctx context.Context, nodeID int64) ([]L1Summary, error) {
+	rows, err := m.pool.Query(ctx, `
+		SELECT l.id, l.name, l.subnet_id, l.vm, l.status
+		FROM l1_validators v
+		JOIN l1s l ON v.l1_id = l.id
+		WHERE v.node_id = $1
+		ORDER BY l.name`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var l1s []L1Summary
+	for rows.Next() {
+		var s L1Summary
+		if err := rows.Scan(&s.ID, &s.Name, &s.SubnetID, &s.VM, &s.Status); err != nil {
+			return nil, err
+		}
+		l1s = append(l1s, s)
+	}
+	if l1s == nil {
+		l1s = []L1Summary{}
+	}
+	return l1s, rows.Err()
 }
 
 func (m *Manager) logEvent(ctx context.Context, eventType, target, message string, details map[string]any) {
