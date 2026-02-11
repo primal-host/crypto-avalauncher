@@ -26,6 +26,11 @@ type Manager struct {
 	healthInterval time.Duration
 	localHostID int64
 
+	// Traefik integration for AvalancheGo RPC routing.
+	traefikDomain  string // e.g. "avax.primal.host" (empty = disabled)
+	traefikNetwork string // e.g. "infra"
+	traefikAuth    string // htpasswd entry for basicauth
+
 	clients   map[int64]*docker.Client // hostID -> client
 	clientsMu sync.RWMutex
 
@@ -33,9 +38,16 @@ type Manager struct {
 	pollerWg   sync.WaitGroup
 }
 
+// TraefikConfig holds Traefik integration settings for AvalancheGo RPC routing.
+type TraefikConfig struct {
+	Domain  string // domain suffix, e.g. "avax.primal.host" (empty = disabled)
+	Network string // Docker network Traefik can reach, e.g. "infra"
+	Auth    string // htpasswd entry for basicauth
+}
+
 // New creates a Manager, ensures the Docker network, upserts the local host
 // row, and runs startup reconciliation.
-func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage, avagoNetwork, avaxDockerNet string, healthInterval time.Duration) (*Manager, error) {
+func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage, avagoNetwork, avaxDockerNet string, healthInterval time.Duration, traefik TraefikConfig) (*Manager, error) {
 	m := &Manager{
 		localClient:    dc,
 		pool:           pool,
@@ -43,6 +55,9 @@ func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage,
 		avagoNetwork:   avagoNetwork,
 		avaxDockerNet:  avaxDockerNet,
 		healthInterval: healthInterval,
+		traefikDomain:  traefik.Domain,
+		traefikNetwork: traefik.Network,
+		traefikAuth:    traefik.Auth,
 		clients:        make(map[int64]*docker.Client),
 		stopPoller:     make(chan struct{}),
 	}
@@ -297,12 +312,15 @@ func (m *Manager) provisionNode(nodeID int64, hostID int64, req CreateNodeReques
 
 	// Build container config.
 	params := &docker.AvagoParams{
-		Name:        req.Name,
-		Image:       req.Image,
-		NetworkName: m.avaxDockerNet,
-		NetworkID:   req.Network,
-		StakingPort: req.StakingPort,
-		ExposeHTTP:  req.ExposeHTTP,
+		Name:           req.Name,
+		Image:          req.Image,
+		NetworkName:    m.avaxDockerNet,
+		NetworkID:      req.Network,
+		StakingPort:    req.StakingPort,
+		ExposeHTTP:     req.ExposeHTTP,
+		TraefikDomain:  m.traefikDomain,
+		TraefikNetwork: m.traefikNetwork,
+		TraefikAuth:    m.traefikAuth,
 	}
 	cc, hc, nc := params.BuildContainerConfig()
 
