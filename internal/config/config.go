@@ -8,7 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 // Config holds all runtime configuration loaded from environment variables.
 type Config struct {
