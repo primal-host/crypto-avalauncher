@@ -87,6 +87,9 @@ const dashboardHTML = `<!DOCTYPE html>
   .status-creating .status-dot { background: #facc15; animation: pulse 1.5s infinite; }
   .status-failed .status-dot { background: #f87171; }
   .status-unhealthy .status-dot, .status-unreachable .status-dot { background: #fb923c; }
+  .status-configured .status-dot { background: #38bdf8; }
+  .status-pending .status-dot { background: #71717a; }
+  .status-active .status-dot { background: #4ade80; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .btn {
     padding: 0.35rem 0.75rem;
@@ -266,6 +269,14 @@ const dashboardHTML = `<!DOCTYPE html>
       </div>
       <div id="node-table"></div>
     </div>
+
+    <div class="section">
+      <div class="section-header">
+        <h2>L1s</h2>
+        <button class="btn-create" onclick="showL1Modal()">Create L1</button>
+      </div>
+      <div id="l1-table"></div>
+    </div>
   </main>
 
   <div class="modal-overlay" id="create-modal">
@@ -302,6 +313,43 @@ const dashboardHTML = `<!DOCTYPE html>
     </div>
   </div>
 
+  <div class="modal-overlay" id="l1-modal">
+    <div class="modal">
+      <h3>Create L1</h3>
+      <div class="error-msg" id="l1-error"></div>
+      <label for="l1-name">Name</label>
+      <input type="text" id="l1-name" placeholder="my-l1">
+      <label for="l1-vm">VM</label>
+      <select id="l1-vm">
+        <option value="subnet-evm" selected>subnet-evm</option>
+      </select>
+      <label for="l1-subnet">Subnet ID (optional)</label>
+      <input type="text" id="l1-subnet" placeholder="Leave empty for pending status">
+      <label for="l1-blockchain">Blockchain ID (optional)</label>
+      <input type="text" id="l1-blockchain" placeholder="">
+      <div class="modal-actions">
+        <button class="btn" onclick="hideL1Modal()">Cancel</button>
+        <button class="btn-create" onclick="createL1()">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="validator-modal">
+    <div class="modal">
+      <h3>Add Validator</h3>
+      <div class="error-msg" id="validator-error"></div>
+      <input type="hidden" id="validator-l1-id">
+      <label for="validator-node">Node</label>
+      <select id="validator-node"></select>
+      <label for="validator-weight">Weight</label>
+      <input type="number" id="validator-weight" value="100" placeholder="100">
+      <div class="modal-actions">
+        <button class="btn" onclick="hideValidatorModal()">Cancel</button>
+        <button class="btn-create" onclick="addValidator()">Add</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="key-modal">
     <div class="modal">
       <h3>Enter Admin Key</h3>
@@ -317,6 +365,7 @@ const dashboardHTML = `<!DOCTYPE html>
   <script>
     let adminKey = sessionStorage.getItem('adminKey') || '';
     let hostsList = [];
+    let nodesList = [];
 
     function headers() {
       const h = {'Content-Type': 'application/json'};
@@ -427,6 +476,135 @@ const dashboardHTML = `<!DOCTYPE html>
       const el = document.getElementById(id);
       el.textContent = msg;
       el.style.display = 'block';
+    }
+
+    function showL1Modal() {
+      if (!adminKey) { showKeyModal(); return; }
+      document.getElementById('l1-error').style.display = 'none';
+      document.getElementById('l1-modal').classList.add('active');
+      document.getElementById('l1-name').focus();
+    }
+    function hideL1Modal() { document.getElementById('l1-modal').classList.remove('active'); }
+
+    async function createL1() {
+      const name = document.getElementById('l1-name').value.trim();
+      const vm = document.getElementById('l1-vm').value;
+      const subnetId = document.getElementById('l1-subnet').value.trim();
+      const blockchainId = document.getElementById('l1-blockchain').value.trim();
+      if (!name) { showError('l1-error', 'Name is required'); return; }
+      try {
+        const body = {name, vm};
+        if (subnetId) body.subnet_id = subnetId;
+        if (blockchainId) body.blockchain_id = blockchainId;
+        const r = await fetch('/api/l1s', {method: 'POST', headers: headers(), body: JSON.stringify(body)});
+        const d = await r.json();
+        if (!r.ok) { showError('l1-error', d.error || 'Failed'); return; }
+        hideL1Modal();
+        document.getElementById('l1-name').value = '';
+        document.getElementById('l1-subnet').value = '';
+        document.getElementById('l1-blockchain').value = '';
+        refresh();
+      } catch(e) { showError('l1-error', e.message); }
+    }
+
+    async function deleteL1(id, name) {
+      if (!confirm('Delete L1 ' + name + '?')) return;
+      try {
+        const r = await fetch('/api/l1s/' + id, {method: 'DELETE', headers: headers()});
+        if (!r.ok) {
+          const d = await r.json();
+          alert(d.error || 'Failed to delete L1');
+        }
+        refresh();
+      } catch(e) { console.error(e); }
+    }
+
+    function showValidatorModal(l1Id) {
+      if (!adminKey) { showKeyModal(); return; }
+      document.getElementById('validator-error').style.display = 'none';
+      document.getElementById('validator-l1-id').value = l1Id;
+      const sel = document.getElementById('validator-node');
+      sel.innerHTML = '';
+      for (const n of nodesList) {
+        const opt = document.createElement('option');
+        opt.value = n.id;
+        opt.textContent = n.name;
+        sel.appendChild(opt);
+      }
+      document.getElementById('validator-modal').classList.add('active');
+    }
+    function hideValidatorModal() { document.getElementById('validator-modal').classList.remove('active'); }
+
+    async function addValidator() {
+      const l1Id = document.getElementById('validator-l1-id').value;
+      const nodeId = parseInt(document.getElementById('validator-node').value) || 0;
+      const weight = parseInt(document.getElementById('validator-weight').value) || 100;
+      try {
+        const r = await fetch('/api/l1s/' + l1Id + '/validators', {method: 'POST', headers: headers(), body: JSON.stringify({node_id: nodeId, weight: weight})});
+        const d = await r.json();
+        if (!r.ok) { showError('validator-error', d.error || 'Failed'); return; }
+        hideValidatorModal();
+        refresh();
+      } catch(e) { showError('validator-error', e.message); }
+    }
+
+    async function removeValidator(l1Id, nodeId, nodeName) {
+      if (!confirm('Remove validator ' + nodeName + '?')) return;
+      try {
+        const r = await fetch('/api/l1s/' + l1Id + '/validators/' + nodeId, {method: 'DELETE', headers: headers()});
+        if (!r.ok) {
+          const d = await r.json();
+          alert(d.error || 'Failed to remove validator');
+        }
+        refresh();
+      } catch(e) { console.error(e); }
+    }
+
+    function renderL1s(l1s) {
+      const el = document.getElementById('l1-table');
+      if (!l1s || l1s.length === 0) {
+        el.innerHTML = '<div class="empty"><h2>No L1s</h2><p>Create an L1 to get started.</p></div>';
+        return;
+      }
+      let html = '<div class="node-cards">';
+      for (const l of l1s) {
+        const sc = statusClass(l.status);
+        html += '<div class="node-card">';
+        html += '<div class="node-card-header">';
+        html += '<span class="node-name">' + l.name + '</span>';
+        html += '<div class="node-meta">';
+        html += '<span class="' + sc + '"><span class="status-dot"></span>' + l.status + '</span>';
+        html += '<span class="tag">' + l.vm + '</span>';
+        if (l.subnet_id) html += '<span class="mono">' + truncate(l.subnet_id, 20) + '</span>';
+        if (l.blockchain_id) html += '<span class="mono">' + truncate(l.blockchain_id, 20) + '</span>';
+        html += '</div>';
+        html += '<div class="node-actions">';
+        html += '<button class="btn" onclick="showValidatorModal(' + l.id + ')">Add Validator</button>';
+        html += '<button class="btn btn-danger" onclick="deleteL1(' + l.id + ',\'' + l.name + '\')">Delete</button>';
+        html += '</div>';
+        html += '</div>';
+
+        html += '<div class="node-card-body">';
+        const vals = l.validators || [];
+        if (vals.length === 0) {
+          html += '<span class="l1-none">No validators</span>';
+        } else {
+          html += '<ul class="l1-list">';
+          for (const v of vals) {
+            html += '<li>';
+            html += '<span>' + v.node_name + '</span>';
+            html += '<span class="tag">weight: ' + v.weight + '</span>';
+            if (v.tx_id) html += '<span class="mono">' + truncate(v.tx_id, 16) + '</span>';
+            html += '<span class="host-remove" onclick="removeValidator(' + l.id + ',' + v.node_id + ',\'' + v.node_name + '\')">remove</span>';
+            html += '</li>';
+          }
+          html += '</ul>';
+        }
+        html += '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      el.innerHTML = html;
     }
 
     async function nodeAction(id, action) {
@@ -554,7 +732,9 @@ const dashboardHTML = `<!DOCTYPE html>
         }
         updateAuthBadge(d.authenticated);
         if (d.hosts_list) hostsList = d.hosts_list;
+        if (d.nodes) nodesList = d.nodes;
         renderNodes(d.nodes || []);
+        renderL1s(d.l1s_list || []);
       } catch(e) { console.error(e); }
     }
 
