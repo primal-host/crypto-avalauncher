@@ -416,11 +416,15 @@ func (m *Manager) reconfigureNode(nodeID int64) {
 	}
 
 	// Build new container config with TrackSubnets.
+	networkID := node.Network
+	if networkID == "" {
+		networkID = m.avagoNetwork
+	}
 	params := &docker.AvagoParams{
 		Name:         node.Name,
 		Image:        node.Image,
 		NetworkName:  m.avaxDockerNet,
-		NetworkID:    m.avagoNetwork,
+		NetworkID:    networkID,
 		StakingPort:  node.StakingPort,
 		TrackSubnets: subnetIDs,
 	}
