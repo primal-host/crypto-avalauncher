@@ -67,6 +67,7 @@ func main() {
 		os.Exit(1)
 	}
 	mgr.StartHealthPoller()
+	mgr.StartHostPoller()
 
 	srv := server.New(db, mgr, cfg.ListenAddr, cfg.AdminKey)
 
@@ -83,6 +84,7 @@ func main() {
 	slog.Info("shutting down", "signal", sig.String())
 
 	mgr.StopHealthPoller()
+	mgr.CloseClients()
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
