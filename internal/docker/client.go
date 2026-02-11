@@ -47,6 +47,15 @@ func (c *Client) Ping(ctx context.Context) error {
 	return err
 }
 
+// HostName returns the Docker host's hostname via daemon info.
+func (c *Client) HostName(ctx context.Context) (string, error) {
+	info, err := c.cli.Info(ctx)
+	if err != nil {
+		return "", err
+	}
+	return info.Name, nil
+}
+
 // EnsureNetwork creates a bridge network if it doesn't exist.
 func (c *Client) EnsureNetwork(ctx context.Context, name string) error {
 	networks, err := c.cli.NetworkList(ctx, network.ListOptions{})
