@@ -27,6 +27,11 @@ type Config struct {
 	AvagoNetwork   string // AVAGO_NETWORK, default "mainnet"
 	AvaxDockerNet  string // AVAX_DOCKER_NETWORK, default "avax"
 	HealthInterval string // HEALTH_INTERVAL, default "30s"
+
+	// Traefik integration for AvalancheGo RPC access
+	TraefikDomain  string // AVAGO_TRAEFIK_DOMAIN, e.g. "avax.primal.host" (empty = disabled)
+	TraefikNetwork string // AVAGO_TRAEFIK_NETWORK, e.g. "infra"
+	TraefikAuth    string // AVAGO_TRAEFIK_AUTH, htpasswd format "user:bcrypt_hash"
 }
 
 // Load reads configuration from environment variables.
@@ -44,6 +49,9 @@ func Load() (*Config, error) {
 		AvagoNetwork:   envOrDefault("AVAGO_NETWORK", "mainnet"),
 		AvaxDockerNet:  envOrDefault("AVAX_DOCKER_NETWORK", "avax"),
 		HealthInterval: envOrDefault("HEALTH_INTERVAL", "30s"),
+		TraefikDomain:  os.Getenv("AVAGO_TRAEFIK_DOMAIN"),
+		TraefikNetwork: envOrDefault("AVAGO_TRAEFIK_NETWORK", "infra"),
+		TraefikAuth:    os.Getenv("AVAGO_TRAEFIK_AUTH"),
 	}
 
 	pw, err := envOrFile("DB_PASSWORD")
