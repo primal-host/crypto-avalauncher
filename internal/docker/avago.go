@@ -47,6 +47,7 @@ func (p *AvagoParams) BuildContainerConfig() (*container.Config, *container.Host
 	env := []string{
 		"AVAGO_NETWORK_ID=" + p.NetworkID,
 		"AVAGO_HTTP_HOST=0.0.0.0",
+		"AVAGO_HTTP_ALLOWED_HOSTS=*",
 		"AVAGO_PUBLIC_IP_RESOLUTION_SERVICE=opendns",
 	}
 	if len(p.TrackSubnets) > 0 {
