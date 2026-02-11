@@ -445,22 +445,28 @@ const dashboardHTML = `<!DOCTYPE html>
 
     function renderNodes(nodes) {
       const el = document.getElementById('node-table');
-      if (!nodes || nodes.length === 0) {
-        el.innerHTML = '<div class="empty"><h2>No nodes</h2><p>Create a node to get started.</p></div>';
-        return;
-      }
       // Build host lookup by hostname.
       const hostByName = {};
       for (const h of hostsList) {
         const label = h.labels && h.labels.hostname ? h.labels.hostname : h.name;
         hostByName[label] = h;
       }
-      // Group nodes by host.
+      // Seed groups from all known hosts so empty hosts still appear.
       const groups = {};
-      for (const n of nodes) {
-        const h = n.host_name || 'local';
-        if (!groups[h]) groups[h] = [];
-        groups[h].push(n);
+      for (const h of hostsList) {
+        const label = h.labels && h.labels.hostname ? h.labels.hostname : h.name;
+        groups[label] = [];
+      }
+      if (nodes) {
+        for (const n of nodes) {
+          const h = n.host_name || 'local';
+          if (!groups[h]) groups[h] = [];
+          groups[h].push(n);
+        }
+      }
+      if (Object.keys(groups).length === 0) {
+        el.innerHTML = '<div class="empty"><h2>No hosts</h2><p>Add a host to get started.</p></div>';
+        return;
       }
       let html = '';
       for (const [host, hostNodes] of Object.entries(groups)) {
@@ -484,6 +490,9 @@ const dashboardHTML = `<!DOCTYPE html>
       }
       html += '</div></div>';
       html += '<div class="node-cards">';
+      if (hostNodes.length === 0) {
+        html += '<div class="empty" style="padding:1.5rem"><p>No nodes on this host</p></div>';
+      }
       for (const n of hostNodes) {
         const sc = statusClass(n.status);
         const nid = n.node_id ? '<span class="mono">' + truncate(n.node_id, 24) + '</span>' : '';
