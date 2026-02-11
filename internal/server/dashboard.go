@@ -117,7 +117,49 @@ const dashboardHTML = `<!DOCTYPE html>
     padding: 3rem;
   }
   .empty p { margin-top: 0.5rem; font-size: 0.875rem; }
-  .node-id { font-family: monospace; font-size: 0.8rem; color: #a1a1aa; }
+  .mono { font-family: monospace; font-size: 0.8rem; color: #a1a1aa; }
+  .node-cards { display: flex; flex-direction: column; gap: 1rem; }
+  .node-card {
+    background: #16181d;
+    border: 1px solid #27272a;
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+  .node-card-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid #1e1e22;
+  }
+  .node-card-header .node-name { font-weight: 600; font-size: 1rem; }
+  .node-card-header .node-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .node-card-header .node-actions { margin-left: auto; display: flex; gap: 0.25rem; }
+  .node-card-body { padding: 0.75rem 1.25rem; }
+  .l1-list { margin: 0; padding: 0; list-style: none; }
+  .l1-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.35rem 0;
+    font-size: 0.85rem;
+  }
+  .l1-none { color: #52525b; font-size: 0.85rem; }
+  .tag {
+    display: inline-block;
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.25rem;
+    background: #27272a;
+    color: #a1a1aa;
+  }
   .modal-overlay {
     display: none;
     position: fixed;
@@ -303,22 +345,50 @@ const dashboardHTML = `<!DOCTYPE html>
         el.innerHTML = '<div class="empty"><h2>No nodes</h2><p>Create a node to get started.</p></div>';
         return;
       }
-      let html = '<table><thead><tr><th>Name</th><th>Image</th><th>Node ID</th><th>Status</th><th>Port</th><th>Actions</th></tr></thead><tbody>';
+      let html = '<div class="node-cards">';
       for (const n of nodes) {
         const sc = statusClass(n.status);
-        const nid = n.node_id ? '<span class="node-id">' + truncate(n.node_id, 20) + '</span>' : '<span class="node-id">-</span>';
+        const nid = n.node_id ? '<span class="mono">' + truncate(n.node_id, 24) + '</span>' : '';
         let actions = '';
         if (n.status === 'running' || n.status === 'unhealthy') {
-          actions = '<button class="btn" onclick="nodeAction('+n.id+',\'stop\')">Stop</button>';
+          actions += '<button class="btn" onclick="nodeAction('+n.id+',\'stop\')">Stop</button>';
         } else if (n.status === 'stopped' || n.status === 'failed') {
-          actions = '<button class="btn" onclick="nodeAction('+n.id+',\'start\')">Start</button>';
+          actions += '<button class="btn" onclick="nodeAction('+n.id+',\'start\')">Start</button>';
         }
         actions += '<button class="btn btn-danger" onclick="if(confirm(\'Delete node ' + n.name + '?\'))nodeAction('+n.id+',\'delete\')">Delete</button>';
-        html += '<tr><td>' + n.name + '</td><td class="node-id">' + truncate(n.image, 30) + '</td><td>' + nid + '</td>';
-        html += '<td class="' + sc + '"><span class="status-dot"></span>' + n.status + '</td>';
-        html += '<td>' + n.staking_port + '</td><td>' + actions + '</td></tr>';
+
+        html += '<div class="node-card">';
+        html += '<div class="node-card-header">';
+        html += '<span class="node-name">' + n.name + '</span>';
+        html += '<div class="node-meta">';
+        html += '<span class="' + sc + '"><span class="status-dot"></span>' + n.status + '</span>';
+        html += '<span class="mono">' + truncate(n.image, 30) + '</span>';
+        html += '<span class="tag">:' + n.staking_port + '</span>';
+        if (nid) html += nid;
+        html += '</div>';
+        html += '<div class="node-actions">' + actions + '</div>';
+        html += '</div>';
+
+        html += '<div class="node-card-body">';
+        const l1s = n.l1s || [];
+        if (l1s.length === 0) {
+          html += '<span class="l1-none">No L1s</span>';
+        } else {
+          html += '<ul class="l1-list">';
+          for (const l of l1s) {
+            html += '<li>';
+            html += '<span>' + l.name + '</span>';
+            html += '<span class="mono">' + truncate(l.subnet_id, 16) + '</span>';
+            html += '<span class="tag">' + l.vm + '</span>';
+            html += '<span class="' + statusClass(l.status) + '"><span class="status-dot"></span>' + l.status + '</span>';
+            html += '</li>';
+          }
+          html += '</ul>';
+        }
+        html += '</div>';
+        html += '</div>';
       }
-      html += '</tbody></table>';
+      html += '</div>';
       el.innerHTML = html;
     }
 
