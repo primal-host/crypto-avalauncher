@@ -10,6 +10,8 @@ import (
 
 	"github.com/primal-host/avalauncher/internal/config"
 	"github.com/primal-host/avalauncher/internal/database"
+	"github.com/primal-host/avalauncher/internal/docker"
+	"github.com/primal-host/avalauncher/internal/manager"
 	"github.com/primal-host/avalauncher/internal/server"
 )
 
@@ -32,7 +34,41 @@ func main() {
 	defer db.Close()
 	slog.Info("database connected")
 
-	srv := server.New(db, cfg.ListenAddr, cfg.AdminKey)
+	// Docker client.
+	dc, err := docker.New(cfg.DockerHost)
+	if err != nil {
+		slog.Error("docker client failed", "error", err)
+		os.Exit(1)
+	}
+	defer dc.Close()
+
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	if err := dc.Ping(ctx); err != nil {
+		cancel()
+		slog.Error("docker ping failed", "error", err)
+		os.Exit(1)
+	}
+	cancel()
+	slog.Info("docker connected")
+
+	// Health interval.
+	healthInterval, err := time.ParseDuration(cfg.HealthInterval)
+	if err != nil {
+		slog.Error("invalid health interval", "error", err)
+		os.Exit(1)
+	}
+
+	// Manager.
+	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
+	mgr, err := manager.New(ctx, dc, db.Pool, cfg.AvagoImage, cfg.AvagoNetwork, cfg.AvaxDockerNet, healthInterval)
+	cancel()
+	if err != nil {
+		slog.Error("manager init failed", "error", err)
+		os.Exit(1)
+	}
+	mgr.StartHealthPoller()
+
+	srv := server.New(db, mgr, cfg.ListenAddr, cfg.AdminKey)
 
 	go func() {
 		if err := srv.Start(); err != nil {
@@ -45,6 +81,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	slog.Info("shutting down", "signal", sig.String())
+
+	mgr.StopHealthPoller()
 
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
