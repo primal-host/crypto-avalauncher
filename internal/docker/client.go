@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
+	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
@@ -36,6 +38,28 @@ func New(host string) (*Client, error) {
 	return &Client{cli: cli}, nil
 }
 
+// NewSSH creates a Docker client that connects over SSH using connhelper.
+func NewSSH(sshAddr string) (*Client, error) {
+	helper, err := connhelper.GetConnectionHelper("ssh://" + sshAddr)
+	if err != nil {
+		return nil, fmt.Errorf("ssh connhelper: %w", err)
+	}
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			DialContext: helper.Dialer,
+		},
+	}
+	cli, err := client.NewClientWithOpts(
+		client.WithHTTPClient(httpClient),
+		client.WithHost(helper.Host),
+		client.WithAPIVersionNegotiation(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("docker ssh client: %w", err)
+	}
+	return &Client{cli: cli}, nil
+}
+
 // Close releases Docker client resources.
 func (c *Client) Close() error {
 	return c.cli.Close()
@@ -54,6 +78,32 @@ func (c *Client) HostName(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return info.Name, nil
+}
+
+// HostInfo holds summary information about a Docker host.
+type HostInfo struct {
+	Hostname      string `json:"hostname"`
+	OS            string `json:"os"`
+	Architecture  string `json:"architecture"`
+	CPUs          int    `json:"cpus"`
+	MemoryMB      int64  `json:"memory_mb"`
+	DockerVersion string `json:"docker_version"`
+}
+
+// HostInfo returns structured information about the Docker host.
+func (c *Client) HostInfo(ctx context.Context) (*HostInfo, error) {
+	info, err := c.cli.Info(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &HostInfo{
+		Hostname:      info.Name,
+		OS:            info.OperatingSystem,
+		Architecture:  info.Architecture,
+		CPUs:          info.NCPU,
+		MemoryMB:      info.MemTotal / (1024 * 1024),
+		DockerVersion: info.ServerVersion,
+	}, nil
 }
 
 // EnsureNetwork creates a bridge network if it doesn't exist.
