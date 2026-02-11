@@ -54,7 +54,7 @@ func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage,
 	// Gather host info and resolve hostname.
 	var hostname string
 	info, err := dc.HostInfo(ctx)
-	if err == nil && info.Hostname != "" && info.Hostname != "orbstack" {
+	if err == nil && info.Hostname != "" && !looksLikeContainerID(info.Hostname) && info.Hostname != "orbstack" {
 		hostname = info.Hostname
 	} else {
 		hostname, _ = os.Hostname()
@@ -792,6 +792,19 @@ func (m *Manager) ListL1sForNode(ctx context.Context, nodeID int64) ([]L1Summary
 		l1s = []L1Summary{}
 	}
 	return l1s, rows.Err()
+}
+
+// looksLikeContainerID returns true if s is a 12-char hex string (Docker short ID).
+func looksLikeContainerID(s string) bool {
+	if len(s) != 12 {
+		return false
+	}
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) logEvent(ctx context.Context, eventType, target, message string, details map[string]any) {
