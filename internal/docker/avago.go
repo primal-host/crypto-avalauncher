@@ -48,7 +48,19 @@ func (p *AvagoParams) BuildContainerConfig() (*container.Config, *container.Host
 		"AVAGO_NETWORK_ID=" + p.NetworkID,
 		"AVAGO_HTTP_HOST=0.0.0.0",
 		"AVAGO_HTTP_ALLOWED_HOSTS=*",
-		"AVAGO_PUBLIC_IP_RESOLUTION_SERVICE=opendns",
+	}
+	if p.NetworkID == "local" {
+		// Single-node local network: disable sybil protection so the node
+		// self-registers as a validator and consensus starts immediately.
+		// Empty bootstrap IPs/IDs prevent peer discovery attempts.
+		env = append(env,
+			"AVAGO_SYBIL_PROTECTION_ENABLED=false",
+			"AVAGO_BOOTSTRAP_IPS=",
+			"AVAGO_BOOTSTRAP_IDS=",
+			"AVAGO_PUBLIC_IP=127.0.0.1",
+		)
+	} else {
+		env = append(env, "AVAGO_PUBLIC_IP_RESOLUTION_SERVICE=opendns")
 	}
 	if len(p.TrackSubnets) > 0 {
 		env = append(env, "AVAGO_TRACK_SUBNETS="+strings.Join(p.TrackSubnets, ","))
