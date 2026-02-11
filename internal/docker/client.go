@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 
 	"github.com/docker/cli/cli/connhelper"
 	"github.com/docker/docker/api/types/container"
@@ -44,14 +43,9 @@ func NewSSH(sshAddr string) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("ssh connhelper: %w", err)
 	}
-	httpClient := &http.Client{
-		Transport: &http.Transport{
-			DialContext: helper.Dialer,
-		},
-	}
 	cli, err := client.NewClientWithOpts(
-		client.WithHTTPClient(httpClient),
 		client.WithHost(helper.Host),
+		client.WithDialContext(helper.Dialer),
 		client.WithAPIVersionNegotiation(),
 	)
 	if err != nil {
