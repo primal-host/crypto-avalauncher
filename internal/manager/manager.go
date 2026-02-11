@@ -177,6 +177,7 @@ type Node struct {
 	Name         string    `json:"name"`
 	HostID       int64     `json:"host_id"`
 	Image        string    `json:"image"`
+	Network      string    `json:"network"`
 	NodeID       string    `json:"node_id,omitempty"`
 	ContainerID  string    `json:"container_id,omitempty"`
 	HTTPPort     int       `json:"http_port"`
@@ -190,6 +191,7 @@ type Node struct {
 type CreateNodeRequest struct {
 	Name        string `json:"name"`
 	Image       string `json:"image"`
+	Network     string `json:"network"`
 	StakingPort int    `json:"staking_port"`
 	ExposeHTTP  bool   `json:"expose_http"`
 	HostID      int64  `json:"host_id"`
@@ -206,6 +208,9 @@ func (m *Manager) CreateNode(ctx context.Context, req CreateNodeRequest) (*Node,
 	}
 	if req.Image == "" {
 		req.Image = m.avagoImage
+	}
+	if req.Network == "" {
+		req.Network = m.avagoNetwork
 	}
 
 	// Check name uniqueness.
@@ -239,11 +244,11 @@ func (m *Manager) CreateNode(ctx context.Context, req CreateNodeRequest) (*Node,
 	// Insert node in creating state.
 	var node Node
 	err = m.pool.QueryRow(ctx, `
-		INSERT INTO nodes (name, host_id, image, staking_port, status)
-		VALUES ($1, $2, $3, $4, 'creating')
-		RETURNING id, name, host_id, image, node_id, container_id, http_port, staking_port, status, created_at, updated_at`,
-		req.Name, hostID, req.Image, req.StakingPort,
-	).Scan(&node.ID, &node.Name, &node.HostID, &node.Image, &node.NodeID,
+		INSERT INTO nodes (name, host_id, image, network, staking_port, status)
+		VALUES ($1, $2, $3, $4, $5, 'creating')
+		RETURNING id, name, host_id, image, network, node_id, container_id, http_port, staking_port, status, created_at, updated_at`,
+		req.Name, hostID, req.Image, req.Network, req.StakingPort,
+	).Scan(&node.ID, &node.Name, &node.HostID, &node.Image, &node.Network, &node.NodeID,
 		&node.ContainerID, &node.HTTPPort, &node.StakingPort, &node.Status,
 		&node.CreatedAt, &node.UpdatedAt)
 	if err != nil {
@@ -295,7 +300,7 @@ func (m *Manager) provisionNode(nodeID int64, hostID int64, req CreateNodeReques
 		Name:        req.Name,
 		Image:       req.Image,
 		NetworkName: m.avaxDockerNet,
-		NetworkID:   m.avagoNetwork,
+		NetworkID:   req.Network,
 		StakingPort: req.StakingPort,
 		ExposeHTTP:  req.ExposeHTTP,
 	}
@@ -330,7 +335,7 @@ func (m *Manager) provisionNode(nodeID int64, hostID int64, req CreateNodeReques
 // ListNodes returns all nodes.
 func (m *Manager) ListNodes(ctx context.Context) ([]Node, error) {
 	rows, err := m.pool.Query(ctx, `
-		SELECT id, name, host_id, image, node_id, container_id, http_port, staking_port, status, created_at, updated_at
+		SELECT id, name, host_id, image, network, node_id, container_id, http_port, staking_port, status, created_at, updated_at
 		FROM nodes ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -340,7 +345,7 @@ func (m *Manager) ListNodes(ctx context.Context) ([]Node, error) {
 	var nodes []Node
 	for rows.Next() {
 		var n Node
-		if err := rows.Scan(&n.ID, &n.Name, &n.HostID, &n.Image, &n.NodeID,
+		if err := rows.Scan(&n.ID, &n.Name, &n.HostID, &n.Image, &n.Network, &n.NodeID,
 			&n.ContainerID, &n.HTTPPort, &n.StakingPort, &n.Status,
 			&n.CreatedAt, &n.UpdatedAt); err != nil {
 			return nil, err
@@ -354,9 +359,9 @@ func (m *Manager) ListNodes(ctx context.Context) ([]Node, error) {
 func (m *Manager) GetNode(ctx context.Context, id int64) (*Node, error) {
 	var n Node
 	err := m.pool.QueryRow(ctx, `
-		SELECT id, name, host_id, image, node_id, container_id, http_port, staking_port, status, created_at, updated_at
+		SELECT id, name, host_id, image, network, node_id, container_id, http_port, staking_port, status, created_at, updated_at
 		FROM nodes WHERE id=$1`, id).
-		Scan(&n.ID, &n.Name, &n.HostID, &n.Image, &n.NodeID,
+		Scan(&n.ID, &n.Name, &n.HostID, &n.Image, &n.Network, &n.NodeID,
 			&n.ContainerID, &n.HTTPPort, &n.StakingPort, &n.Status,
 			&n.CreatedAt, &n.UpdatedAt)
 	if err != nil {
@@ -767,6 +772,7 @@ type NodeSummary struct {
 	Name        string      `json:"name"`
 	HostName    string      `json:"host_name"`
 	Image       string      `json:"image"`
+	Network     string      `json:"network"`
 	NodeID      string      `json:"node_id,omitempty"`
 	StakingPort int         `json:"staking_port"`
 	Status      string      `json:"status"`
