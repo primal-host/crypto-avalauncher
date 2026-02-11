@@ -421,12 +421,15 @@ func (m *Manager) reconfigureNode(nodeID int64) {
 		networkID = m.avagoNetwork
 	}
 	params := &docker.AvagoParams{
-		Name:         node.Name,
-		Image:        node.Image,
-		NetworkName:  m.avaxDockerNet,
-		NetworkID:    networkID,
-		StakingPort:  node.StakingPort,
-		TrackSubnets: subnetIDs,
+		Name:           node.Name,
+		Image:          node.Image,
+		NetworkName:    m.avaxDockerNet,
+		NetworkID:      networkID,
+		StakingPort:    node.StakingPort,
+		TrackSubnets:   subnetIDs,
+		TraefikDomain:  m.traefikDomain,
+		TraefikNetwork: m.traefikNetwork,
+		TraefikAuth:    m.traefikAuth,
 	}
 	cc, hc, nc := params.BuildContainerConfig()
 
