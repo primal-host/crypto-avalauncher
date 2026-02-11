@@ -29,6 +29,12 @@ func (s *Server) routes() {
 	api.GET("/hosts", s.handleListHosts)
 	api.POST("/hosts", s.handleAddHost)
 	api.DELETE("/hosts/:id", s.handleRemoveHost)
+	api.POST("/l1s", s.handleCreateL1)
+	api.GET("/l1s", s.handleListL1s)
+	api.GET("/l1s/:id", s.handleGetL1)
+	api.DELETE("/l1s/:id", s.handleDeleteL1)
+	api.POST("/l1s/:id/validators", s.handleAddValidator)
+	api.DELETE("/l1s/:id/validators/:nodeId", s.handleRemoveValidator)
 }
 
 // requireBearer is Echo middleware that checks the Authorization header.
@@ -106,6 +112,11 @@ func (s *Server) handleStatus(c echo.Context) error {
 		hosts, err := s.mgr.ListHosts(ctx)
 		if err == nil {
 			resp["hosts_list"] = hosts
+		}
+
+		l1sList, err := s.mgr.ListL1sForDashboard(ctx)
+		if err == nil {
+			resp["l1s_list"] = l1sList
 		}
 	}
 
@@ -242,6 +253,80 @@ func (s *Server) handleRemoveHost(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
 	}
 	if err := s.mgr.RemoveHost(c.Request().Context(), id); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "removed"})
+}
+
+func (s *Server) handleCreateL1(c echo.Context) error {
+	var req manager.CreateL1Request
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+	l1, err := s.mgr.CreateL1(c.Request().Context(), req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusCreated, l1)
+}
+
+func (s *Server) handleListL1s(c echo.Context) error {
+	l1s, err := s.mgr.ListL1s(c.Request().Context())
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, l1s)
+}
+
+func (s *Server) handleGetL1(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	l1, err := s.mgr.GetL1(c.Request().Context(), id)
+	if err != nil {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": "L1 not found"})
+	}
+	return c.JSON(http.StatusOK, l1)
+}
+
+func (s *Server) handleDeleteL1(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	if err := s.mgr.DeleteL1(c.Request().Context(), id); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleAddValidator(c echo.Context) error {
+	l1ID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	var req manager.AddValidatorRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+	}
+	val, err := s.mgr.AddValidator(c.Request().Context(), l1ID, req)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	return c.JSON(http.StatusCreated, val)
+}
+
+func (s *Server) handleRemoveValidator(c echo.Context) error {
+	l1ID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
+	}
+	nodeID, err := strconv.ParseInt(c.Param("nodeId"), 10, 64)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid node id"})
+	}
+	if err := s.mgr.RemoveValidator(c.Request().Context(), l1ID, nodeID); err != nil {
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "removed"})
