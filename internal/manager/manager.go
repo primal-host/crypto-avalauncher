@@ -23,6 +23,7 @@ type Manager struct {
 	avagoNetwork   string // avalanche network id (mainnet, fuji, local)
 	avaxDockerNet  string // docker network name
 	healthInterval time.Duration
+	localHostLabel string // resolved Docker host name
 
 	stopPoller chan struct{}
 	pollerWg   sync.WaitGroup
@@ -43,6 +44,13 @@ func New(ctx context.Context, dc *docker.Client, pool *pgxpool.Pool, avagoImage,
 
 	if err := dc.EnsureNetwork(ctx, avaxDockerNet); err != nil {
 		return nil, fmt.Errorf("ensure network: %w", err)
+	}
+
+	// Resolve local host label from Docker daemon.
+	if name, err := dc.HostName(ctx); err == nil && name != "" {
+		m.localHostLabel = name
+	} else {
+		m.localHostLabel = "local"
 	}
 
 	// Upsert the "local" host row.
@@ -598,11 +606,17 @@ type L1Summary struct {
 type NodeSummary struct {
 	ID          int64       `json:"id"`
 	Name        string      `json:"name"`
+	HostName    string      `json:"host_name"`
 	Image       string      `json:"image"`
 	NodeID      string      `json:"node_id,omitempty"`
 	StakingPort int         `json:"staking_port"`
 	Status      string      `json:"status"`
 	L1s         []L1Summary `json:"l1s"`
+}
+
+// LocalHostLabel returns the resolved Docker host display name.
+func (m *Manager) LocalHostLabel() string {
+	return m.localHostLabel
 }
 
 // ListL1sForNode returns L1s validated by the given node.
