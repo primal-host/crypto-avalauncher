@@ -60,7 +60,12 @@ func main() {
 
 	// Manager.
 	ctx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
-	mgr, err := manager.New(ctx, dc, db.Pool, cfg.AvagoImage, cfg.AvagoNetwork, cfg.AvaxDockerNet, healthInterval)
+	traefik := manager.TraefikConfig{
+		Domain:  cfg.TraefikDomain,
+		Network: cfg.TraefikNetwork,
+		Auth:    cfg.TraefikAuth,
+	}
+	mgr, err := manager.New(ctx, dc, db.Pool, cfg.AvagoImage, cfg.AvagoNetwork, cfg.AvaxDockerNet, healthInterval, traefik)
 	cancel()
 	if err != nil {
 		slog.Error("manager init failed", "error", err)
