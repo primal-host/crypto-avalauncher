@@ -100,6 +100,7 @@ func (s *Server) handleStatus(c echo.Context) error {
 					Name:        n.Name,
 					HostName:    hostName,
 					Image:       n.Image,
+					Network:     n.Network,
 					NodeID:      n.NodeID,
 					StakingPort: n.StakingPort,
 					Status:      n.Status,
