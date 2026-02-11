@@ -67,6 +67,12 @@ Tables: `hosts`, `nodes`, `l1s`, `l1_validators`, `events`.
 | `GET` | `/api/hosts` | Bearer | List all hosts |
 | `POST` | `/api/hosts` | Bearer | Add remote host (name, ssh_addr) |
 | `DELETE` | `/api/hosts/:id` | Bearer | Remove host (no nodes) |
+| `POST` | `/api/l1s` | Bearer | Create L1 (name, vm, subnet_id, blockchain_id) |
+| `GET` | `/api/l1s` | Bearer | List L1s with validator counts |
+| `GET` | `/api/l1s/:id` | Bearer | Get L1 with validators |
+| `DELETE` | `/api/l1s/:id` | Bearer | Delete L1 (no validators) |
+| `POST` | `/api/l1s/:id/validators` | Bearer | Add validator (node_id, weight) |
+| `DELETE` | `/api/l1s/:id/validators/:nodeId` | Bearer | Remove validator |
 
 ## Node Lifecycle
 
@@ -83,6 +89,20 @@ POST /api/nodes → creating → running ⇄ stopped → DELETE
 - Startup reconciliation syncs DB status with actual Docker container states
 - Host poller (2x health interval) pings remote hosts, auto-reconnects on failure
 - Multi-host: nodes can target any connected host, port uniqueness scoped per host
+
+## L1 Lifecycle
+
+```
+POST /api/l1s → pending (no subnet_id)
+             → configured (with subnet_id) → active (Phase 4b)
+```
+
+- L1s start as `pending` until a subnet_id is assigned
+- `configured` L1s trigger container reconfiguration when validators are added/removed
+- Adding a validator to a configured L1 recreates the node's container with `AVAGO_TRACK_SUBNETS`
+- Removing a validator also reconfigures the container (updates tracked subnets)
+- Nodes cannot be deleted while they have L1 validator assignments
+- L1s cannot be deleted while they have validators
 
 ## AvalancheGo Containers
 
