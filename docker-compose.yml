@@ -25,6 +25,7 @@ services:
       - "traefik.http.routers.avalauncher.rule=Host(`avalauncher.primal.host`)"
       - "traefik.http.routers.avalauncher.entrypoints=https"
       - "traefik.http.routers.avalauncher.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.avalauncher.middlewares=noknok-auth@docker"
       # Production HTTP->HTTPS redirect
       - "traefik.http.routers.avalauncher-redirect.rule=Host(`avalauncher.primal.host`)"
       - "traefik.http.routers.avalauncher-redirect.entrypoints=http"
@@ -32,6 +33,7 @@ services:
       # Local (HTTP)
       - "traefik.http.routers.avalauncher-local.rule=Host(`avalauncher.localhost`)"
       - "traefik.http.routers.avalauncher-local.entrypoints=http"
+      - "traefik.http.routers.avalauncher-local.middlewares=noknok-auth@docker"
       # Service
       - "traefik.http.services.avalauncher.loadbalancer.server.port=4321"
     dns:
