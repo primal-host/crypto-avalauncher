@@ -363,6 +363,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
   <script>
     let adminKey = sessionStorage.getItem('adminKey') || '';
+    let authenticated = false;
     let hostsList = [];
     let nodesList = [];
     let traefikDomain = '';
@@ -373,11 +374,13 @@ const dashboardHTML = `<!DOCTYPE html>
       return h;
     }
 
-    function updateAuthBadge(authenticated) {
+    function updateAuthBadge(isAuth, userHandle) {
       const b = document.getElementById('auth-badge');
-      if (authenticated) {
-        b.textContent = 'authenticated';
+      if (isAuth) {
+        b.textContent = userHandle || 'authenticated';
         b.className = 'auth-status ok';
+        b.style.cursor = 'default';
+        b.onclick = null;
       } else {
         b.textContent = 'click for key';
         b.className = 'auth-status no';
@@ -399,7 +402,7 @@ const dashboardHTML = `<!DOCTYPE html>
     }
 
     function showHostModal() {
-      if (!adminKey) { showKeyModal(); return; }
+      if (!authenticated) { showKeyModal(); return; }
       document.getElementById('host-error').style.display = 'none';
       document.getElementById('host-modal').classList.add('active');
       document.getElementById('host-name').focus();
@@ -446,7 +449,7 @@ const dashboardHTML = `<!DOCTYPE html>
     }
 
     function showCreateModal() {
-      if (!adminKey) { showKeyModal(); return; }
+      if (!authenticated) { showKeyModal(); return; }
       document.getElementById('create-error').style.display = 'none';
       populateHostSelect();
       document.getElementById('create-modal').classList.add('active');
@@ -480,7 +483,7 @@ const dashboardHTML = `<!DOCTYPE html>
     }
 
     function showL1Modal() {
-      if (!adminKey) { showKeyModal(); return; }
+      if (!authenticated) { showKeyModal(); return; }
       document.getElementById('l1-error').style.display = 'none';
       document.getElementById('l1-modal').classList.add('active');
       document.getElementById('l1-name').focus();
@@ -521,7 +524,7 @@ const dashboardHTML = `<!DOCTYPE html>
     }
 
     function showValidatorModal(l1Id) {
-      if (!adminKey) { showKeyModal(); return; }
+      if (!authenticated) { showKeyModal(); return; }
       document.getElementById('validator-error').style.display = 'none';
       document.getElementById('validator-l1-id').value = l1Id;
       const sel = document.getElementById('validator-node');
@@ -562,7 +565,7 @@ const dashboardHTML = `<!DOCTYPE html>
     }
 
     async function nodeAction(id, action) {
-      if (!adminKey) { showKeyModal(); return; }
+      if (!authenticated) { showKeyModal(); return; }
       const method = action === 'delete' ? 'DELETE' : 'POST';
       const path = action === 'delete' ? '/api/nodes/' + id + '?remove_volumes=false' : '/api/nodes/' + id + '/' + action;
       try {
@@ -684,7 +687,8 @@ const dashboardHTML = `<!DOCTYPE html>
           document.getElementById('l1s').textContent = d.counts.l1s;
           document.getElementById('events').textContent = d.counts.events;
         }
-        updateAuthBadge(d.authenticated);
+        authenticated = d.authenticated || false;
+        updateAuthBadge(authenticated, d.user_handle);
         if (d.traefik_domain) traefikDomain = d.traefik_domain;
         if (d.hosts_list) hostsList = d.hosts_list;
         if (d.nodes) nodesList = d.nodes;

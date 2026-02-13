@@ -86,6 +86,9 @@ func (s *Server) handleStatus(c echo.Context) error {
 
 	if authenticated {
 		resp["authenticated"] = true
+		if handle := c.Request().Header.Get("X-User-Handle"); handle != "" {
+			resp["user_handle"] = handle
+		}
 		nodes, err := s.mgr.ListNodes(ctx)
 		if err == nil {
 			hostLabels := s.mgr.HostLabelsMap(ctx)
@@ -338,6 +341,11 @@ func (s *Server) handleRemoveValidator(c echo.Context) error {
 }
 
 func (s *Server) checkBearer(c echo.Context) bool {
+	// Check noknok role header (set by Traefik forwardAuth).
+	if role := c.Request().Header.Get("X-User-Role"); role == "admin" {
+		return true
+	}
+	// Fall back to Bearer token.
 	if s.adminKey == "" {
 		return false
 	}
