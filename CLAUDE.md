@@ -45,9 +45,19 @@ Tables: `hosts`, `nodes`, `l1s`, `l1_validators`, `events`.
 - Networks: `infra` (postgres/traefik), `avax` (AvalancheGo nodes)
 - Port: 4321
 - Traefik: `avalauncher.primal.host` / `avalauncher.localhost`
+- Traefik middleware: `noknok-auth@docker` (AT Protocol OAuth via noknok)
 - DNS: `192.168.147.53` (infra CoreDNS)
 - Docker socket mounted for container management
 - SSH keys (ro) and agent socket mounted for remote host access
+
+## Authentication
+
+Two auth methods, checked in order by `checkBearer()`:
+
+1. **noknok role header** — `X-User-Role: admin` set by Traefik forwardAuth (via noknok). Users with an `admin` grant in noknok get full API access automatically.
+2. **Bearer token** — `Authorization: Bearer <ADMIN_KEY>` for direct API access (fallback).
+
+The dashboard detects auth state from `/api/status` response. When authenticated via noknok, the user's Bluesky handle appears in the header badge and no manual key entry is needed.
 
 ## API Endpoints
 
@@ -55,24 +65,24 @@ Tables: `hosts`, `nodes`, `l1s`, `l1_validators`, `events`.
 |--------|------|------|-------------|
 | `GET` | `/health` | No | Health check |
 | `GET` | `/` | No | Dashboard |
-| `GET` | `/api/status` | No | Card counts + node summaries (auth for nodes) |
-| `POST` | `/api/nodes` | Bearer | Create and start a node |
-| `GET` | `/api/nodes` | Bearer | List all nodes |
-| `GET` | `/api/nodes/:id` | Bearer | Get node details |
-| `POST` | `/api/nodes/:id/start` | Bearer | Start a stopped node |
-| `POST` | `/api/nodes/:id/stop` | Bearer | Stop a running node |
-| `DELETE` | `/api/nodes/:id` | Bearer | Remove node (?remove_volumes=true) |
-| `GET` | `/api/nodes/:id/logs` | Bearer | Container logs (?tail=50) |
-| `GET` | `/api/events` | Bearer | Audit event log (?limit=50) |
-| `GET` | `/api/hosts` | Bearer | List all hosts |
-| `POST` | `/api/hosts` | Bearer | Add remote host (name, ssh_addr) |
-| `DELETE` | `/api/hosts/:id` | Bearer | Remove host (no nodes) |
-| `POST` | `/api/l1s` | Bearer | Create L1 (name, vm, subnet_id, blockchain_id) |
-| `GET` | `/api/l1s` | Bearer | List L1s with validator counts |
-| `GET` | `/api/l1s/:id` | Bearer | Get L1 with validators |
-| `DELETE` | `/api/l1s/:id` | Bearer | Delete L1 (no validators) |
-| `POST` | `/api/l1s/:id/validators` | Bearer | Add validator (node_id, weight) |
-| `DELETE` | `/api/l1s/:id/validators/:nodeId` | Bearer | Remove validator |
+| `GET` | `/api/status` | No | Card counts + node summaries (auth for full details) |
+| `POST` | `/api/nodes` | Yes | Create and start a node |
+| `GET` | `/api/nodes` | Yes | List all nodes |
+| `GET` | `/api/nodes/:id` | Yes | Get node details |
+| `POST` | `/api/nodes/:id/start` | Yes | Start a stopped node |
+| `POST` | `/api/nodes/:id/stop` | Yes | Stop a running node |
+| `DELETE` | `/api/nodes/:id` | Yes | Remove node (?remove_volumes=true) |
+| `GET` | `/api/nodes/:id/logs` | Yes | Container logs (?tail=50) |
+| `GET` | `/api/events` | Yes | Audit event log (?limit=50) |
+| `GET` | `/api/hosts` | Yes | List all hosts |
+| `POST` | `/api/hosts` | Yes | Add remote host (name, ssh_addr) |
+| `DELETE` | `/api/hosts/:id` | Yes | Remove host (no nodes) |
+| `POST` | `/api/l1s` | Yes | Create L1 (name, vm, subnet_id, blockchain_id) |
+| `GET` | `/api/l1s` | Yes | List L1s with validator counts |
+| `GET` | `/api/l1s/:id` | Yes | Get L1 with validators |
+| `DELETE` | `/api/l1s/:id` | Yes | Delete L1 (no validators) |
+| `POST` | `/api/l1s/:id/validators` | Yes | Add validator (node_id, weight) |
+| `DELETE` | `/api/l1s/:id/validators/:nodeId` | Yes | Remove validator |
 
 ## Node Lifecycle
 
